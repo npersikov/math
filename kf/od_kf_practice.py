@@ -23,6 +23,7 @@ def orbit_determination(x, v, period, dt) :
     sigma_v = 0.01 # 10 meters
 
     # The list of measured state vectors
+    #TODO change the nav data to give range and range-rate information
     x_nav_list = np.add(x, random.normal(0, sigma_x, size=(3,1)))
     v_nav_list = np.add(v, random.normal(0, sigma_v, size=(3,1)))
 
@@ -42,6 +43,35 @@ def orbit_determination(x, v, period, dt) :
 
     plt.plot(x_nav_list[0,:], x_nav_list[1,:])
     plt.show()
+
+def predict_state(x_nav_list, v_nav_list)
+    # Make a state vector array for easy manipulation
+    states = np.vstack(x_nav_list, v_nav_list)
+
+    # Set up the matrices for kalman filter setup
+    B = np.zeros(6,1) # Convert to new predicted state from input vector
+    F = []
+    H = []
+    P = []
+    Q = np.zeros(6,1) # additional environment uncertainty constant matrix
+    R = []
+    K = []
+
+    # Save estimated states
+    state_best_guesses = []
+
+    # Loop through state measurment time history to generate 
+    # kalman filtered estimation data
+    for state in state :
+        # Predict next best guess
+
+        # Create next best guess using prediction and measurment data
+        next_best_guess = M*P*Q #TODO change this its not this!!!!!!
+
+        state_best_guesses.append(next_best_guess)
+
+    return state_best_guesses
+
 
 def plot_orbit(x, v, period, dt) :
     x_list = x
