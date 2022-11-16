@@ -44,20 +44,28 @@ def orbit_determination(x, v, period, dt) :
 
     # Simulate orbit for a period
     times = np.arange(0, period, dt)
+    x_vec = x_0
+    x_vec_u = x_0
+    P_u = P_0
     for time in times :
-        ddr = -mu*x/np.linalg.norm(x)**3
-        v   = v + ddr*dt
-        x   = x + v*dt
 
         # ============ State Estimation ===============
 
         # Predict
-        x_p = predict_next_state(x_u_old, stm)
-        P_p = predict_next_covariance(P_u_old, stm, Q)
+        stm = get_stm()
+        x_p = predict_next_state(x_vec_u, stm)
+        P_p = predict_next_covariance(P_u, stm, Q)
 
         # Update
 
+
         # =============================================
+
+        # Incremental orbit physics integration
+        ddr = -mu*x/np.linalg.norm(x)**3
+        v   = v + ddr*dt
+        x   = x + v*dt
+        x_vec = np.vstack(x, v)
 
         # Save real state
         x_list = np.c_[x_list, x]
@@ -148,5 +156,40 @@ def update_covariance(K, H, P_p):
 def get_H(x):
     # TODO figure out how to split up this line nicely.
     H = np.array([[0,0,0,1,0,0], [0,0,0,0,1,0], [0,0,0,0,0,1], [2*x(1), 2*x(2), 2*x(3), 0, 0, 0], [0, 0, 0, 2*x(4), 2*x(5), 2*x(6)]])
+
+# Get the matrix needed to integrate the state transition matrix from one time
+# to the next in an orbit.
+#
+# NOTE: if you want the STM from one state to another, you integrate the
+# stm rate matrix from time 0 to time t_f. The stm rate matrix is the output of
+# this function (dgdx) times the previous stm, which, at t = 0, is an identity
+# matrix. So, if you want the stm from one time step to the next, you integrate
+# from t = 0 to t = dt, so you just multiply dgdx by eye(6) and by dt to get the
+# stm.
+def get_stm_jacobian(r, mu):
+
+    zeros   = np.zeros(len(r), len(r))
+    eye     = np.identity(len(r))
+    partial = np.identity(len(r))
+    rows    = len(r)
+    cols    = len(r)
+
+    # The dgdx matrix is 6x6, with a zeros(3) anx eye(3) on the top, and a 3x3
+    # matrix with analytically determined derivatives and zeros(3) on the
+    # bottom. This for loop calculates the 3x3 matrix with derivatives.
+    for row in range(rows) :
+        for col in range(cols) :
+            if row == col :
+                partial(row, col) = (-mu*(np.linalg.norm(r)**2 - 3*r(row)**2)) / (np.linalg.norm(r)**5)
+            else :
+                partial(row, col) = 3*mu*r(row)*r(col)/(np.linalg.norm(r)**5)
+
+    # Concatenate the four sub-matrices to get the stm stm (yes the stm stm).
+    top     = np.hstack(zeros, eye)
+    bot     = np.hstack(partial, zeros)
+    dgdx    = np.vstack(top, bot)
+
+    # Finally, return the stm stm
+    return dgdx
 
 orbit_determination(x, v, get_period(x, v, mu), 0.1)
