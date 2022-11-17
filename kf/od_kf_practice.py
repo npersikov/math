@@ -42,7 +42,8 @@ def orbit_determination(x, v, period, dt, mu) :
     # assumed measurment variables are cartesian velocity components, range, and
     # range-rate.
     # NOTE: consider updating for accelerometer data.
-    R   = np.diag([sigma_v, sigma_v, sigma_v, 3*(sigma_x**2), 3*(sigma_v**2)])
+    # R   = np.diag([sigma_v, sigma_v, sigma_v, 3*(sigma_x**2), 3*(sigma_v**2)])
+    R   = np.diag([sigma_x, sigma_x, sigma_x, sigma_v, sigma_v, sigma_v, 3*(sigma_x**2), 3*(sigma_v**2)])
 
     # ===========================================================
 
@@ -69,7 +70,9 @@ def orbit_determination(x, v, period, dt, mu) :
         stm         = np.identity(6) + dphi*dt
         x_vec_p     = predict_next_state(x_vec_u, stm)
         P_p         = predict_next_covariance(P_u, stm, Q)
-        meas_p      = get_meas_from_state(x_vec_p)
+        # meas_p      = get_meas_from_state(x_vec_p)
+        # meas_p      = get_meas_from_state_IMU_RR(x_vec_p, mu)
+        meas_p      = get_meas_from_state_GPS_IMU_RR(x_vec_p, mu)
 
         # =======================================================
 
@@ -90,15 +93,14 @@ def orbit_determination(x, v, period, dt, mu) :
         # ============ State Estimation Update ==================
 
         # Update
-        H           = get_H(x_vec_p)
+        # H           = get_H(x_vec_p)
+        # H           = get_H_IMU_RR(x_vec_p)
+        H           = get_H_GPS_IMU_RR(x_vec_p)
         K           = get_kalman_gain(P_p, H, R)
         meas_state  = np.vstack((x_nav_list[:, [index]], v_nav_list[:, [index]]))
-
-        # print "predicted measurment: ", meas_p
-        # print "real measurement: ", get_meas_from_state(meas_state)
-        # print "predicted state vector: ", x_vec_p
-        # print "K: ", K
-        x_vec_u     = x_vec_p + np.matmul(K, get_meas_from_state(meas_state) - meas_p)
+        # x_vec_u     = x_vec_p + np.matmul(K, get_meas_from_state(meas_state) - meas_p)
+        # x_vec_u     = x_vec_p + np.matmul(K, get_meas_from_state_IMU_RR(meas_state, mu) - meas_p)
+        x_vec_u     = x_vec_p + np.matmul(K, get_meas_from_state_GPS_IMU_RR(meas_state, mu) - meas_p)
         P_u         = P_p - np.matmul(K, np.matmul(H, P_p))
         # time.sleep(10)
 
@@ -234,12 +236,23 @@ def get_H(x):
     H = np.array([[0,0,0,1,0,0], [0,0,0,0,1,0], [0,0,0,0,0,1], [x[0,0]/np.linalg.norm(x[0:3,0]), x[1,0]/np.linalg.norm(x[0:3,0]), x[2,0]/np.linalg.norm(x[0:3,0]), 0, 0, 0], [0, 0, 0, x[3,0]/np.linalg.norm(x[3:6,0]), x[4,0]/np.linalg.norm(x[3:6,0]), x[5,0]/np.linalg.norm(x[3:6,0])]])
     return H
 
-def get_H_IMU_Range_Rangerate(x):
-    r = x[0:3,0]
-    partial = dadx(r)
-    top_three_rows = np.hstack((partial, np.zeros((len(r), len(r)))))
-    bottom_two_rows = [[x[0,0]/np.linalg.norm(x[0:3,0]), x[1,0]/np.linalg.norm(x[0:3,0]), x[2,0]/np.linalg.norm(x[0:3,0]), 0, 0, 0], [0, 0, 0, x[3,0]/np.linalg.norm(x[3:6,0]), x[4,0]/np.linalg.norm(x[3:6,0]), x[5,0]/np.linalg.norm(x[3:6,0])]]
-    print "new function bottom two rows: ", bottom_two_rows
+# Same purpose as above, but uses an accelerometer, range, range-rate
+def get_H_IMU_RR(x):
+    r                   = x[0:3,0]
+    partial             = dadx(r)
+    top_three_rows      = np.hstack((partial, np.zeros((len(r), len(r)))))
+    bottom_two_rows     = np.vstack(([x[0,0]/np.linalg.norm(x[0:3,0]), x[1,0]/np.linalg.norm(x[0:3,0]), x[2,0]/np.linalg.norm(x[0:3,0]), 0, 0, 0], [0, 0, 0, x[3,0]/np.linalg.norm(x[3:6,0]), x[4,0]/np.linalg.norm(x[3:6,0]), x[5,0]/np.linalg.norm(x[3:6,0])]))
+    H                   = np.vstack((top_three_rows, bottom_two_rows))
+    return H
+
+# Same purpose as above, but uses GPS, accelerometer, range, range-rate
+def get_H_GPS_IMU_RR(x):
+    r               = x[0:3,0]
+    zeros           = np.zeros((len(r), len(r)))
+    eye             = np.identity(len(r))
+    top_three_rows  = np.hstack((eye, zeros))
+    H               = np.vstack((top_three_rows, get_H_IMU_RR(x)))
+    return H
 
 # Get the matrix needed to integrate the state transition matrix from one time
 # to the next in an orbit.
@@ -267,7 +280,17 @@ def get_stm_jacobian(r, mu):
 # This function is h(x), which gets the predicted measurement from the predicted
 # state and a realistic measurment from a realistic state.
 def get_meas_from_state(x_vec) :
-    h = np.array([[x_vec[0,0]], [x_vec[1,0]], [x_vec[2,0]], [np.linalg.norm(x_vec[0:3,0])], [np.linalg.norm(x_vec[3:len(x_vec)])]])
+    h = np.array([[x_vec[3,0]], [x_vec[4,0]], [x_vec[5,0]], [np.linalg.norm(x_vec[0:3,0])], [np.linalg.norm(x_vec[3:len(x_vec)])]])
+    return h
+
+def get_meas_from_state_IMU_RR(x_vec, mu) :
+    r = np.linalg.norm(x_vec[0:3,0])
+    h = np.array([[-mu*x_vec[0,0]/r**3], [-mu*x_vec[1,0]/r**3], [-mu*x_vec[2,0]/r**3], [r], [np.linalg.norm(x_vec[3:len(x_vec)])]])
+    return h
+
+def get_meas_from_state_GPS_IMU_RR(x_vec, mu) :
+    pos_vec = x_vec[0:3,[0]]
+    h = np.vstack((pos_vec, get_meas_from_state_IMU_RR(x_vec, mu)))
     return h
 
 orbit_determination(x, v, get_period(x, v, mu), 1, mu)
