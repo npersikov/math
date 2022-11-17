@@ -110,11 +110,29 @@ def orbit_determination(x, v, period, dt, mu) :
         # Increment utility index
         index = index + 1
 
+    # Combine the saved position and velocity vector histories into state vector
+    # history variable
+    x_vec_list = np.vstack((x_list, v_list))
+
     # Plot the period
     plt.figure(1)
     plt.plot(x_nav_list[0,:], x_nav_list[1,:])
+
     plt.figure(2)
     plt.plot(x_vec_det_list[0,:], x_vec_det_list[1,:])
+
+    plt.figure(3)
+    for plot_num in range(6) :
+        print "subplot number: ", plot_num
+        plt.subplot(2,3,plot_num+1)
+        plt.plot(times, x_vec_list[plot_num, 1 :])
+
+    plt.figure(4)
+    for plot_num in range(6) :
+        print "subplot number: ", plot_num
+        plt.subplot(2,3,plot_num+1)
+        plt.plot(times, x_vec_det_list[plot_num, 1 :])
+
     plt.show()
 
 def plot_orbit(x, v, period, dt) :
@@ -182,32 +200,7 @@ def update_covariance(K, H, P_p):
     P_u = np.add(P_p, mat_prod)
     return P_u
 
-# H is the partial derivative of mapping function h (from state to measurment)
-# wrt the state vector x. In this case, the measurment vector z was assumed to
-# be [v_x; v_y; v_z; r; r_dot], in other words the velocity from an IMU, range,
-# and range-rate.
-#
-# z can take on many forms, for example including IMU accelerometer data, and
-# this would require redefinition of h and rederivation of H.
-#
-# x is assumed to be a 6 element vector of position and velocity cartesian
-# components.
-def get_H(x):
-    # TODO figure out how to split up this line nicely.
-    H = np.array([[0,0,0,1,0,0], [0,0,0,0,1,0], [0,0,0,0,0,1], [2*x[0,0], 2*x[1,0], 2*x[2,0], 0, 0, 0], [0, 0, 0, 2*x[3,0], 2*x[4,0], 2*x[5,0]]])
-    return H
-
-# Get the matrix needed to integrate the state transition matrix from one time
-# to the next in an orbit.
-#
-# NOTE: if you want the STM from one state to another, you integrate the
-# stm rate matrix from time 0 to time t_f. The stm rate matrix is the output of
-# this function (dgdx) times the previous stm, which, at t = 0, is an identity
-# matrix. So, if you want the stm from one time step to the next, you integrate
-# from t = 0 to t = dt, so you just multiply dgdx by eye(6) and by dt to get the
-# stm.
-def get_stm_jacobian(r, mu):
-
+def dadx(r):
     zeros   = np.zeros((len(r), len(r)))
     eye     = np.identity(len(r))
     partial = np.identity(len(r))
@@ -223,6 +216,45 @@ def get_stm_jacobian(r, mu):
                 partial[row, col] = (-mu*(np.linalg.norm(r)**2 - 3*r[row]**2)) / (np.linalg.norm(r)**5)
             else :
                 partial[row, col] = 3*mu*r[row]*r[col]/(np.linalg.norm(r)**5)
+
+    return partial
+
+# H is the partial derivative of mapping function h (from state to measurment)
+# wrt the state vector x. In this case, the measurment vector z was assumed to
+# be [v_x; v_y; v_z; r; r_dot], in other words the velocity from an IMU, range,
+# and range-rate.
+#
+# z can take on many forms, for example including IMU accelerometer data, and
+# this would require redefinition of h and rederivation of H.
+#
+# x is assumed to be a 6 element vector of position and velocity cartesian
+# components.
+def get_H(x):
+    # TODO figure out how to split up this line nicely.
+    H = np.array([[0,0,0,1,0,0], [0,0,0,0,1,0], [0,0,0,0,0,1], [x[0,0]/np.linalg.norm(x[0:3,0]), x[1,0]/np.linalg.norm(x[0:3,0]), x[2,0]/np.linalg.norm(x[0:3,0]), 0, 0, 0], [0, 0, 0, x[3,0]/np.linalg.norm(x[3:6,0]), x[4,0]/np.linalg.norm(x[3:6,0]), x[5,0]/np.linalg.norm(x[3:6,0])]])
+    return H
+
+def get_H_IMU_Range_Rangerate(x):
+    r = x[0:3,0]
+    partial = dadx(r)
+    top_three_rows = np.hstack((partial, np.zeros((len(r), len(r)))))
+    bottom_two_rows = [[x[0,0]/np.linalg.norm(x[0:3,0]), x[1,0]/np.linalg.norm(x[0:3,0]), x[2,0]/np.linalg.norm(x[0:3,0]), 0, 0, 0], [0, 0, 0, x[3,0]/np.linalg.norm(x[3:6,0]), x[4,0]/np.linalg.norm(x[3:6,0]), x[5,0]/np.linalg.norm(x[3:6,0])]]
+    print "new function bottom two rows: ", bottom_two_rows
+
+# Get the matrix needed to integrate the state transition matrix from one time
+# to the next in an orbit.
+#
+# NOTE: if you want the STM from one state to another, you integrate the
+# stm rate matrix from time 0 to time t_f. The stm rate matrix is the output of
+# this function (dgdx) times the previous stm, which, at t = 0, is an identity
+# matrix. So, if you want the stm from one time step to the next, you integrate
+# from t = 0 to t = dt, so you just multiply dgdx by eye(6) and by dt to get the
+# stm.
+def get_stm_jacobian(r, mu):
+
+    zeros   = np.zeros((len(r), len(r)))
+    eye     = np.identity(len(r))
+    partial = dadx(r)
 
     # Concatenate the four sub-matrices to get the stm stm (yes the stm stm).
     top     = np.hstack((zeros, eye))
